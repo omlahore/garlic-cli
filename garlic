@@ -505,7 +505,17 @@ def find_usb_roots():
         cands.extend(glob.glob(p))
     if os.name == "nt":
         cands.extend(f"{c}:\\" for c in string.ascii_uppercase[3:])
-    return [c for c in cands if os.path.isdir(os.path.join(c, "PS4", "SAVEDATA"))]
+    # Patterns overlap (/media/<user>/* and /media/*/* hit the same stick), so
+    # dedupe by real path or a single drive shows up as several "candidates".
+    seen, roots = set(), []
+    for c in cands:
+        rp = os.path.realpath(c)
+        if rp in seen:
+            continue
+        seen.add(rp)
+        if os.path.isdir(os.path.join(c, "PS4", "SAVEDATA")):
+            roots.append(c)
+    return roots
 
 
 def resolve_usb(path):

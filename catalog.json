@@ -42,5 +42,27 @@
     "url": "https://playersquared.com/threads/red-dead-redemption-2-all-regions.15549/",
     "source": "PlayerSquared",
     "notes": "Modded: unlocks items you did not earn and can pop trophies. Free account plus reaction unlocks the link."
+  },
+  {
+    "game": "Red Dead Redemption 2",
+    "title_id": "CUSA03041",
+    "region": "US",
+    "name": "EVIL Legend of the East Starter Save",
+    "state": "Chapter 2 start, modded loadout",
+    "modded": true,
+    "url": "https://playersquared.com/threads/rdr2-evil-legend-of-the-east-starter-save-final-update-cusa03041.13415/",
+    "source": "PlayerSquared",
+    "notes": "Modded: grants gear you did not earn and can pop trophies. Account plus reaction unlocks the link."
+  },
+  {
+    "game": "Red Dead Redemption 2",
+    "title_id": "CUSA03041",
+    "region": "US",
+    "name": "New Game Plus",
+    "state": "Post-story NG+, not a clean Chapter 2 start",
+    "modded": true,
+    "url": "https://nextgenupdate.com/forums/ps4-game-save-modding/1026911-usa-red-dead-redemption-2-new-game-plus-cusa03041a.html",
+    "source": "NextGenUpdate",
+    "notes": "Listed for completeness; not what you want for a plain prologue skip."
   }
 ]
