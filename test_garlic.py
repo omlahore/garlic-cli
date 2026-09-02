@@ -81,6 +81,22 @@ def test_catalog():
     assert "Intro Skip" in r.stdout and "All Regions" in r.stdout
 
 
+
+
+def test_reregion_sample_pick():
+    """Re-region must take the destination title and sample from the USB, not the input."""
+    with tempfile.TemporaryDirectory() as t:
+        make_usb(t)                                   # your own US save
+        assert g.usb_titles_for(t, ACCT) == ["CUSA08519"]
+        sp, bp = g.usb_sample_pair(t, ACCT, "CUSA08519")
+        assert sp.endswith("SRDR30000") and bp.endswith("SRDR30000.bin")
+        # -K is a top-level flag, it has to precede the subcommand.
+        r = subprocess.run([sys.executable, os.path.join(HERE, "garlic"), "-K", "x", "apply", t,
+                            "--usb", t, "--reregion", "--title", "NOPE"],
+                           capture_output=True, text=True)
+        assert r.returncode == 1 and "your own region's title ID" in r.stderr, (r.stdout, r.stderr)
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

@@ -704,6 +704,23 @@ def cmd_install(args):
     print("PS5: Settings > Saved Data and Game/App Settings > Saved Data (PS4) > USB Drive > Copy to Console Storage")
 
 
+def usb_titles_for(usb_root, acct):
+    return sorted(scan_usb(usb_root).get(acct, {}).keys())
+
+
+def usb_sample_pair(usb_root, acct, title):
+    """A save/.bin pair already on the USB, used as the re-region keystone sample.
+
+    Re-region needs a save from the *target* region of the same game. Your own
+    export is exactly that, so there is no second download to hunt for."""
+    d = os.path.join(usb_root, "PS4", "SAVEDATA", acct, title)
+    pairs = find_pairs(d)
+    if not pairs:
+        print(f"Error: no save under {d} to use as a region sample", file=sys.stderr)
+        sys.exit(1)
+    return pairs[0]
+
+
 def cmd_apply(args):
     key = get_key(args)
     api_url = get_api_url(args)
@@ -717,19 +734,39 @@ def cmd_apply(args):
         if not pairs:
             print("Error: no <save> + <save>.bin pairs found in input", file=sys.stderr)
             sys.exit(1)
-        title = (args.title or infer_title([p for p, _ in pairs]) or "").upper()
-        if not TITLE_RE.match(title):
-            print("Error: cannot infer title ID from input, pass --title CUSAxxxxx", file=sys.stderr)
-            sys.exit(1)
+
+        sample = None
+        if args.reregion:
+            # Destination is YOUR region. The input is the foreign-region save,
+            # so its own title ID is the wrong answer here.
+            titles = usb_titles_for(usb_root, acct_usb)
+            title = (args.title or (titles[0] if len(titles) == 1 else "")).upper()
+            if not TITLE_RE.match(title):
+                print("Error: pass --title with your own region's title ID "
+                      f"(found on USB: {', '.join(titles) or 'none'})", file=sys.stderr)
+                sys.exit(1)
+            sample = usb_sample_pair(usb_root, acct_usb, title)
+            operation = "reregion"
+        else:
+            title = (args.title or infer_title([p for p, _ in pairs]) or "").upper()
+            if not TITLE_RE.match(title):
+                print("Error: cannot infer title ID from input, pass --title CUSAxxxxx", file=sys.stderr)
+                sys.exit(1)
+            operation = "resign"
 
         file_list = []
         for sp, bp in pairs:
             file_list.append(("files", os.path.basename(sp), sp))
             file_list.append(("files", os.path.basename(bp), bp))
+        if sample:
+            file_list.append(("sample", os.path.basename(sample[0]), sample[0]))
+            file_list.append(("sample", os.path.basename(sample[1]), sample[1]))
+            print(f"Region sample: {os.path.basename(sample[0])} (your own {title} save)")
+
         print(f"Account: {acct_usb} (USB)  ->  {acct_api} (API)")
         print(f"Title:   {title}")
-        print(f"Submitting resign job ({len(pairs)} save(s))...")
-        job_id = submit_job(api_url, key, "resign", [("account_id", acct_api)], file_list)
+        print(f"Submitting {operation} job ({len(pairs)} save(s))...")
+        job_id = submit_job(api_url, key, operation, [("account_id", acct_api)], file_list)
         print(f"Job: {job_id}")
         result = poll_job(api_url, key, job_id)
         if result["status"] != "done":
@@ -745,9 +782,8 @@ def cmd_apply(args):
             print("Error: result zip has no save/.bin pairs", file=sys.stderr)
             sys.exit(1)
         dest = write_to_usb(out_pairs, usb_root, acct_usb, title)
-    print(f"Installed {len(out_pairs)} resigned save(s) to {dest}")
+    print(f"Installed {len(out_pairs)} save(s) to {dest}")
     print("PS5: Settings > Saved Data and Game/App Settings > Saved Data (PS4) > USB Drive > Copy to Console Storage")
-
 
 
 # ── Main ──────────────────────────────────────────────────────
@@ -838,6 +874,9 @@ def main():
     p.add_argument("-t", "--title", help="Title ID (inferred from input path if omitted)")
     p.add_argument("--account", help="Account ID in USB folder form (default: the one folder on the USB)")
     p.add_argument("--no-swap", action="store_true", help="Send the account ID to the API as-is (no byte-order swap)")
+    p.add_argument("--reregion", action="store_true",
+                   help="Input is a foreign-region save: re-region it to your region using a save "
+                        "already on the USB as the sample, instead of a plain resign")
 
     args = parser.parse_args()
 

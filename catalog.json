@@ -8,7 +8,7 @@
     "modded": false,
     "url": "https://playersquared.com/threads/red-dead-redemption-2-no-mod-intro-skip-starter-save-cusa08519.13860/",
     "source": "PlayerSquared",
-    "notes": "Exactly Horseshoe Overlook, unmodded, but EU CUSA08519 ONLY. Will not import into a US CUSA03041 install even after resigning. Free account plus a Love reaction unlocks it."
+    "notes": "THE clean one: exactly Horseshoe Overlook, nothing modded, no honor changes. EU CUSA08519, so a US/other-region console needs `garlic apply --reregion` (re-region, not a plain resign) with one of your own saves as the sample. Free account plus a Love reaction unlocks the link."
   },
   {
     "game": "Red Dead Redemption 2",
@@ -41,7 +41,7 @@
     "modded": true,
     "url": "https://playersquared.com/threads/red-dead-redemption-2-all-regions.15549/",
     "source": "PlayerSquared",
-    "notes": "Modded: unlocks items you did not earn and can pop trophies. Free account plus reaction unlocks the link."
+    "notes": "Modded. Reaction-gated. Listed as a fallback only."
   },
   {
     "game": "Red Dead Redemption 2",
@@ -64,5 +64,16 @@
     "url": "https://nextgenupdate.com/forums/ps4-game-save-modding/1026911-usa-red-dead-redemption-2-new-game-plus-cusa03041a.html",
     "source": "NextGenUpdate",
     "notes": "Listed for completeness; not what you want for a plain prologue skip."
+  },
+  {
+    "game": "Red Dead Redemption 2",
+    "title_id": "CUSA03041",
+    "region": "US",
+    "name": "PaPa Drops Modded Starter (Good Honor variant)",
+    "state": "Beginning of Chapter 2, right after the Uncle/town mission",
+    "modded": true,
+    "url": "https://playersquared.com/threads/red-dead-redemption-2-modded-starter-save-papa-drops-mod-cusa03041.18197/",
+    "source": "PlayerSquared",
+    "notes": "Closest US-native placement, and it ships a max GOOD honor variant as well as a bad one. Costs 20 forum credits, so it is not just a free reaction."
   }
 ]
