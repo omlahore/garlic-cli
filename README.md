@@ -133,19 +133,22 @@ PS5 uses the same path for PS4 games.
 
 ### Account ID forms
 
-The folder name under `PS4/SAVEDATA/` is the numeric account ID as 16 hex digits.
-`param.sfo` stores that number as a little-endian uint64, and the worker writes the
-`account_id` hex string straight into `param.sfo` byte for byte. So the value the API
-wants is the folder name with its byte order reversed:
+The folder name under `PS4/SAVEDATA/` is the numeric account ID as 16 hex digits,
+zero-padded. That is also the "display form" the garlicsaves **website** asks for, so
+paste the folder name straight into the web form.
+
+The raw worker API is different. `garlic-worker` runs `hex_to_bytes(account_id)` and
+`pwrite()`s those 8 bytes into `param.sfo`, which stores `ACCOUNT_ID` as a little-endian
+uint64, so the raw API takes the byte sequence: the folder name reversed.
 
 ```
-USB folder:   0123456789abcdef
-API / -a:     efcdab8967452301
+USB folder name / garlicsaves web form:  0123456789abcdef
+raw worker API (-a, apply):              efcdab8967452301
 ```
 
-`garlic usb` prints both. `garlic apply` does the swap for you. `-a` on `resign`,
-`encrypt` and `reregion` is passed through untouched, so give those the API form.
-If a resigned save does not show up on the console, try `apply --no-swap` once.
+`garlic usb` prints both and labels which is which. `garlic apply` does the swap for
+you; `-a` on `resign`, `encrypt` and `reregion` is passed through untouched. If a
+resigned save does not show up on the console, try `apply --no-swap` once.
 
 Region matters: a `CUSA03041` (US) save will not import into a `CUSA08519` (EU) install
 even after resigning. `garlic usb` shows the title ID your console actually uses.

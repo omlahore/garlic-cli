@@ -462,13 +462,20 @@ def cmd_config(args):
 #   PS4/SAVEDATA/<account-id>/<title-id>/<savename>  +  <savename>.bin
 #
 # Account ID forms. The folder name is the numeric account ID as 16 hex
-# digits (Apollo prints it with %016lx, HTOS builds the path from the same
-# string). param.sfo stores that number as a little-endian uint64, and the
-# worker writes the account_id hex string byte-for-byte into param.sfo
-# (hex_to_bytes + pwrite in garlic-worker src/ps4/worker.c). So the string
-# the API wants is the USB folder name with its byte order reversed.
-# garlicsaves.com's own param.sfo viewer reverses the bytes "to match USB
-# folder name", which is the same relation from the other side.
+# digits, zero-padded: Apollo prints it with %016lx and parses folders with
+# sscanf("%lx"), HTOS builds the path from the same string. That is also the
+# "display form" the garlicsaves *website* form asks for.
+#
+# The raw worker API is different. garlic-worker does hex_to_bytes(account_id)
+# then pwrite()s those 8 bytes straight into param.sfo at SFO_AID_OFFSET
+# (src/ps4/worker.c), and param.sfo holds ACCOUNT_ID as a little-endian
+# uint64. So the raw API takes the byte sequence, i.e. the folder name
+# reversed. garlicsaves' own param.sfo viewer reverses the stored bytes
+# "to match USB folder name", which is the same relation seen from the
+# other side. The website presumably converts before enqueueing.
+#
+# swap_account_bytes() converts between them; --no-swap on `apply` sends the
+# folder form through untouched if this turns out to be backwards.
 
 ACCT_RE = re.compile(r"^(?:0x)?([0-9a-fA-F]{16})$")
 TITLE_RE = re.compile(r"^[A-Z]{4}\d{5}$")
@@ -622,8 +629,8 @@ def cmd_usb(args):
     all_titles = sorted({t for ts in data.values() for t in ts})
     names = {} if args.offline else title_names(all_titles)
     for acct, titles in data.items():
-        print(f"\nAccount (USB folder form): {acct}")
-        print(f"Account (API form, use with -a): {swap_account_bytes(acct)}")
+        print(f"\nAccount ID (USB folder name; paste this into the garlicsaves web form): {acct}")
+        print(f"  raw worker API form (garlic -a / apply): {swap_account_bytes(acct)}")
         for tid, saves in titles.items():
             label = names.get(tid, "")
             print(f"  {tid}  {label:<40} {len(saves)} save(s)")
