@@ -95,6 +95,48 @@ def test_reregion_sample_pick():
                             "--usb", t, "--reregion", "--title", "NOPE"],
                            capture_output=True, text=True)
         assert r.returncode == 1 and "your own region's title ID" in r.stderr, (r.stdout, r.stderr)
+def _make_sfo(title="CUSA08519", acct_display="0123456789abcdef"):
+    """Minimal param.sfo with the two fields re-region touches."""
+    import struct
+    keys = ["ACCOUNT_ID", "TITLE_ID"]
+    kt = b""; koff = {}
+    for k in keys:
+        koff[k] = len(kt); kt += k.encode() + b"\0"
+    vals = {"ACCOUNT_ID": (bytes.fromhex(acct_display)[::-1], 8, 8, 0x0404),
+            "TITLE_ID": (title.encode() + b"\0", len(title) + 1, 12, 0x0204)}
+    dt = b""; doff = {}
+    for k in keys:
+        raw, ln, mx, _f = vals[k]
+        doff[k] = len(dt); dt += raw + b"\0" * (mx - len(raw))
+    hdr_len = 0x14 + len(keys) * 0x10
+    key_off = hdr_len
+    data_off = key_off + len(kt)
+    out = struct.pack("<IIIII", 0x46535000, 0x0101, key_off, data_off, len(keys))
+    for k in keys:
+        raw, ln, mx, fmt = vals[k]
+        out += struct.pack("<HHIII", koff[k], fmt, ln, mx, doff[k])
+    return out + kt + dt
+
+
+def test_sfo_patch_roundtrip():
+    with tempfile.TemporaryDirectory() as t:
+        p = os.path.join(t, "param.sfo")
+        open(p, "wb").write(_make_sfo())
+        assert g.sfo_read_title(p) == "CUSA08519"
+        g.sfo_patch(p, title_id="CUSA03041", account_display=ACCT)
+        assert g.sfo_read_title(p) == "CUSA03041"
+        off, ln, _mx = g.sfo_fields(p)["ACCOUNT_ID"]
+        stored = open(p, "rb").read()[off:off + 8]
+        # stored little-endian; reversed it is the USB folder / display form
+        assert stored[::-1].hex() == ACCT, stored.hex()
+        assert stored.hex() == API, "stored bytes are the raw API form"
+
+
+def test_api_requests_identify_themselves():
+    """urllib's default UA gets a 1010 from the CDN, so every API call must set one."""
+    src = open(os.path.join(HERE, "garlic")).read()
+    assert 'USER_AGENT = "garlic-cli/' in src
+    assert '"User-Agent": USER_AGENT' in src
 
 
 if __name__ == "__main__":

@@ -15,8 +15,13 @@ import shutil
 import string
 import tempfile
 import zipfile
+import struct
 
 DEFAULT_API_URL = "https://garlicsaves.com/api/v1"
+# urllib's default UA is rejected by the CDN in front of the API with a bare
+# "error code: 1010", which reads like an auth failure but is not. Identify
+# ourselves honestly instead; that passes.
+USER_AGENT = "garlic-cli/1.0 (+https://github.com/earthonion/garlic-cli)"
 CONFIG_PATH = os.path.expanduser("~/.config/garlic/config.json")
 
 
@@ -142,7 +147,7 @@ def multipart_encode(fields, files):
 
 def api_request(url, key, method="GET", data=None, content_type=None):
     """Make an API request, return parsed JSON or raw bytes."""
-    headers = {"X-Worker-Key": key}
+    headers = {"X-Worker-Key": key, "User-Agent": USER_AGENT}
     if content_type:
         headers["Content-Type"] = content_type
     req = urllib.request.Request(url, data=data, headers=headers, method=method)
@@ -721,6 +726,93 @@ def usb_sample_pair(usb_root, acct, title):
     return pairs[0]
 
 
+
+# ── param.sfo (local re-region) ────────────────────────────────
+#
+# The server-side "reregion" op exists in garlic-worker but the live worker
+# pool rejects it ("Unsupported operation reregion"), so do the same work
+# client-side out of ops the workers DO support: decrypt, patch, encrypt.
+# worker.c's reregion patches ACCOUNT_ID at SFO_AID_OFFSET and writes the
+# sample's keystone; that is exactly what is reproduced here, plus TITLE_ID.
+
+SFO_MAGIC = 0x46535000
+
+
+def sfo_fields(path):
+    """key -> (absolute data offset, length, max length)."""
+    d = open(path, "rb").read()
+    magic, _ver, koff, doff, n = struct.unpack_from("<IIIII", d, 0)
+    if magic != SFO_MAGIC:
+        print(f"Error: {path} is not a param.sfo", file=sys.stderr)
+        sys.exit(1)
+    out = {}
+    for i in range(n):
+        ko, _fmt, ln, mx, do = struct.unpack_from("<HHIII", d, 0x14 + i * 0x10)
+        key = d[koff + ko:d.index(b"\0", koff + ko)].decode()
+        out[key] = (doff + do, ln, mx)
+    return out
+
+
+def sfo_read_title(path):
+    off, ln, _mx = sfo_fields(path)["TITLE_ID"]
+    return open(path, "rb").read()[off:off + ln].split(b"\0")[0].decode()
+
+
+def sfo_patch(path, title_id=None, account_display=None):
+    """account_display is the USB folder form; it is stored little-endian."""
+    f = sfo_fields(path)
+    d = bytearray(open(path, "rb").read())
+    if title_id is not None:
+        off, _ln, mx = f["TITLE_ID"]
+        if len(title_id) + 1 > mx:
+            print(f"Error: title {title_id} does not fit in param.sfo", file=sys.stderr)
+            sys.exit(1)
+        d[off:off + len(title_id)] = title_id.encode()
+    if account_display is not None:
+        off, _ln, _mx = f["ACCOUNT_ID"]
+        d[off:off + 8] = bytes.fromhex(account_display)[::-1]
+    open(path, "wb").write(bytes(d))
+
+
+def _run_job(api_url, key, operation, fields, file_list, out_zip, quiet=True):
+    job_id = submit_job(api_url, key, operation, list(fields), file_list)
+    result = poll_job(api_url, key, job_id, quiet=quiet)
+    if result["status"] != "done":
+        print(f"Job {job_id} failed: {result.get('error', 'unknown error')}", file=sys.stderr)
+        sys.exit(1)
+    download_result(api_url, key, job_id, out_zip)
+    return out_zip
+
+
+def _unzip(z, d):
+    os.makedirs(d, exist_ok=True)
+    with zipfile.ZipFile(z) as zf:
+        zf.extractall(d)
+    return d
+
+
+def decrypt_pair(api_url, key, sp, bp, workdir):
+    """Decrypt ONE save. One per job: the worker flattens sce_sys, so batching
+    several saves into a single job silently returns only one of them."""
+    z = os.path.join(workdir, "dec.zip")
+    _run_job(api_url, key, "decrypt", [("include_sce_sys", "true")],
+             [("files", os.path.basename(sp), sp), ("files", os.path.basename(bp), bp)], z)
+    return _unzip(z, os.path.join(workdir, "dec"))
+
+
+def encrypt_folder(api_url, key, folder, account_api, workdir):
+    zsrc = os.path.join(workdir, "payload.zip")
+    with zipfile.ZipFile(zsrc, "w", zipfile.ZIP_STORED) as zf:
+        for root, _, files in os.walk(folder):
+            for f in files:
+                fp = os.path.join(root, f)
+                zf.write(fp, os.path.relpath(fp, folder))
+    out = os.path.join(workdir, "enc.zip")
+    _run_job(api_url, key, "encrypt", [("account_id", account_api)],
+             [("files", "save.zip", zsrc)], out)
+    return _unzip(out, os.path.join(workdir, "enc"))
+
+
 def cmd_apply(args):
     key = get_key(args)
     api_url = get_api_url(args)
@@ -746,7 +838,7 @@ def cmd_apply(args):
                       f"(found on USB: {', '.join(titles) or 'none'})", file=sys.stderr)
                 sys.exit(1)
             sample = usb_sample_pair(usb_root, acct_usb, title)
-            operation = "reregion"
+            operation = "reregion"   # done locally, see below
         else:
             title = (args.title or infer_title([p for p, _ in pairs]) or "").upper()
             if not TITLE_RE.match(title):
@@ -765,18 +857,41 @@ def cmd_apply(args):
 
         print(f"Account: {acct_usb} (USB)  ->  {acct_api} (API)")
         print(f"Title:   {title}")
-        print(f"Submitting {operation} job ({len(pairs)} save(s))...")
-        job_id = submit_job(api_url, key, operation, [("account_id", acct_api)], file_list)
-        print(f"Job: {job_id}")
-        result = poll_job(api_url, key, job_id)
-        if result["status"] != "done":
-            print(f"Job failed: {result.get('error', 'unknown error')}", file=sys.stderr)
-            sys.exit(1)
-        out_zip = os.path.join(tmp, "result.zip")
-        download_result(api_url, key, job_id, out_zip)
-        out_dir = os.path.join(tmp, "out")
-        with zipfile.ZipFile(out_zip) as zf:
-            zf.extractall(out_dir)
+
+        if sample:
+            out_dir = os.path.join(tmp, "out")
+            os.makedirs(out_dir, exist_ok=True)
+            sw = os.path.join(tmp, "sample")
+            os.makedirs(sw, exist_ok=True)
+            print("Decrypting your own save for the region keystone...")
+            sample_dec = decrypt_pair(api_url, key, sample[0], sample[1], sw)
+            sample_ks = os.path.join(sample_dec, "sce_sys", "keystone")
+            for i, (sp, bp) in enumerate(pairs):
+                name = os.path.basename(sp)
+                w = os.path.join(tmp, f"w{i}")
+                os.makedirs(w, exist_ok=True)
+                print(f"  re-regioning {name}...")
+                dec = decrypt_pair(api_url, key, sp, bp, w)
+                sfo = os.path.join(dec, "sce_sys", "param.sfo")
+                sfo_patch(sfo, title_id=title, account_display=acct_usb)
+                if os.path.isfile(sample_ks):
+                    shutil.copyfile(sample_ks, os.path.join(dec, "sce_sys", "keystone"))
+                enc = encrypt_folder(api_url, key, dec, acct_api, w)
+                for f in os.listdir(enc):
+                    shutil.copyfile(os.path.join(enc, f), os.path.join(out_dir, f))
+        else:
+            print(f"Submitting {operation} job ({len(pairs)} save(s))...")
+            job_id = submit_job(api_url, key, operation, [("account_id", acct_api)], file_list)
+            print(f"Job: {job_id}")
+            result = poll_job(api_url, key, job_id)
+            if result["status"] != "done":
+                print(f"Job failed: {result.get('error', 'unknown error')}", file=sys.stderr)
+                sys.exit(1)
+            out_zip = os.path.join(tmp, "result.zip")
+            download_result(api_url, key, job_id, out_zip)
+            out_dir = os.path.join(tmp, "out")
+            with zipfile.ZipFile(out_zip) as zf:
+                zf.extractall(out_dir)
         out_pairs = find_pairs(out_dir)
         if not out_pairs:
             print("Error: result zip has no save/.bin pairs", file=sys.stderr)
