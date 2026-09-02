@@ -104,6 +104,56 @@ for dir in /media/usb/PS4/SAVEDATA/*/; do
 done
 ```
 
+## USB helpers
+
+The four things garlic did not do: read the account ID and title ID off a USB export,
+find a community save for that title, and put the resigned result back in the right folder.
+
+```bash
+# What is on the stick? Prints the account ID in both forms and every title on it.
+garlic usb                      # auto-detects /media, /run/media, /Volumes, drive letters
+garlic usb --usb /media/me/PS4  # or point at the USB root
+
+# Which title IDs exist for a game, per region?
+garlic titles "Red Dead Redemption 2"
+
+# Known community saves for a title ID (links only, nothing is rehosted)
+garlic catalog CUSA08519
+
+# Resign a downloaded save (zip, folder, or file) to the account on the USB
+# and write it to PS4/SAVEDATA/<account>/<title>/ in one go
+garlic apply ~/Downloads/rdr2-ch2.zip --usb /media/me/PS4
+
+# Or just copy an already-resigned result into place
+garlic install 1234_resigned.zip --usb /media/me/PS4 -t CUSA08519
+```
+
+Then on the console: Settings > Saved Data and Game/App Settings > Saved Data (PS4) > USB Drive > Copy to Console Storage.
+PS5 uses the same path for PS4 games.
+
+### Account ID forms
+
+The folder name under `PS4/SAVEDATA/` is the numeric account ID as 16 hex digits.
+`param.sfo` stores that number as a little-endian uint64, and the worker writes the
+`account_id` hex string straight into `param.sfo` byte for byte. So the value the API
+wants is the folder name with its byte order reversed:
+
+```
+USB folder:   0123456789abcdef
+API / -a:     efcdab8967452301
+```
+
+`garlic usb` prints both. `garlic apply` does the swap for you. `-a` on `resign`,
+`encrypt` and `reregion` is passed through untouched, so give those the API form.
+If a resigned save does not show up on the console, try `apply --no-swap` once.
+
+Region matters: a `CUSA03041` (US) save will not import into a `CUSA08519` (EU) install
+even after resigning. `garlic usb` shows the title ID your console actually uses.
+
+`catalog.json` sits next to the script. Add entries there; keep them as links.
+
+Self-check: `python3 test_garlic.py` (offline).
+
 ## Config
 
 Config is stored at `~/.config/garlic/config.json`. API key can also be set via the `GARLIC_API_KEY` environment variable or the `-K` flag.
